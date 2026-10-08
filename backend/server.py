@@ -160,6 +160,17 @@ _EXEMPT = ("/", "/ui", "/img", "/favicon.ico")
 _ADMIN_PREFIX = "/admin"
 
 
+def _hq_is_loopback(request: Request) -> bool:
+    """macOS 分支: 本机回环客户端免 api_key。
+
+    服务只绑定 127.0.0.1(start_mac.py 固定), 回环对端与本服务同一信任域——
+    同机任意进程本可直接读 data/session-key.txt, 鉴权对它不构成边界。
+    仍保留限流; 非回环来源(理论上不存在, 除非被端口转发)照旧要求 key。
+    """
+    client = request.client.host if request.client else ""
+    return client in ("127.0.0.1", "::1", "localhost")
+
+
 def _check_admin(request: Request) -> bool:
     tok = request.headers.get("x-admin-token") or request.query_params.get("admin_token") or ""
     return bool(tok) and tok == ADMIN_TOKEN
@@ -185,7 +196,10 @@ async def auth_mw(request: Request, call_next):
             _bucket.append(_now)
     else:
         key = request.headers.get("x-api-key") or request.query_params.get("api_key") or ""
-        if not _keys.is_valid(key):            # 强制: 必须有效密钥
+        # macOS 分支: 本机回环客户端免 key(见 _hq_is_loopback 注释), 仍走限流
+        if not key and _hq_is_loopback(request):
+            key = "__loopback__"
+        if key != "__loopback__" and not _keys.is_valid(key):   # 强制: 必须有效密钥
             _stats["auth_fail"] += 1
             return JSONResponse({"detail": "缺少或无效的 api_key(请在客户端配置本地链路密钥)"}, status_code=401)
         now = time.time()

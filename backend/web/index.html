@@ -131,10 +131,19 @@ async function playEp(idx){
     const r=await get('/play',{series_id:curId,ep:String(idx)});
     const u=r.episodes[0]?.url; lastUrl=u||'';
     const stream=API+'/stream'+q({series_id:curId,ep:String(idx)});
-    p.innerHTML = `第${idx}集: ` + (u?`<a href="${u}" target="_blank">▶️ 在线播放</a> &nbsp; <button onclick="copyOne()">📋 复制直链</button> &nbsp; `:'(无直链) ')
-      + `<a href="${stream}">⬇️ 经服务器下载</a>`;
+    // 内嵌播放器: /stream 服务端边解密边串流, 支持 Range 拖动; 不用下载整个文件
+    p.innerHTML = `<video id="hgv" controls autoplay playsinline preload="metadata" style="width:100%;max-height:52vh;background:#000;border-radius:8px;margin:6px 0" src="${stream}"></video>
+      <div>第${idx}集 · ` + (u?`<button onclick="copyOne()">📋 复制直链</button> &nbsp; `:'')
+      + `<a href="${stream}" download>⬇️ 另存为</a> &nbsp; <button onclick="epNext(${idx})">下一集 ▸</button></div>`;
+    const v=document.getElementById('hgv');
+    v.onerror=()=>{ p.insertAdjacentHTML('afterbegin','<div style="color:#f66">播放失败(可能仍在解密, 几秒后重试或点集号)</div>'); };
+    v.onended=()=>{ if(curEps.length>idx) playEp(idx+1); };
+    // 下一集预热: 播放稳定后后台预取 ep+1(服务端解密缓存), 连播时秒开
+    v.onplaying=()=>{ if(curEps.length>idx && !v.dataset.pf){ v.dataset.pf=1;
+      fetch(API+'/stream'+q({series_id:curId,ep:String(idx+1)}),{headers:{Range:'bytes=0-0'}}).catch(()=>{}); } };
   }catch(e){ p.textContent='错误: '+e.message; }
 }
+function epNext(idx){ if(curEps.length>idx) playEp(idx+1); else alert('已经是最后一集'); }
 async function copyOne(){
   if(!lastUrl) return;
   const ok=await copyText(lastUrl);

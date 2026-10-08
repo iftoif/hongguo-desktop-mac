@@ -73,7 +73,7 @@ function renderSub(){
   grid.innerHTML='';
   if(view==='search'){
     sub.innerHTML = `<input id="qq" placeholder="输入剧名" style="flex:1;min-width:200px"><button onclick="doSearch()">搜索</button>`;
-    document.getElementById('qq').onkeydown = e => e.key==='Enter' && doSearch();
+    document.getElementById('qq').onkeydown = e => { if(e.key==='Enter') doSearch(); };
   } else if(view==='rank'){
     sub.innerHTML = `<select id="board"><option value="recommend">推荐榜</option><option value="hot">热播榜</option><option value="new">新剧榜</option></select><button onclick="doRank()">刷新</button>`;
     doRank();

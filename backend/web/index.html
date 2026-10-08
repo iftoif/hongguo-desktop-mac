@@ -43,6 +43,7 @@
     <div class="tab on" data-v="search">搜索</div>
     <div class="tab" data-v="rank">榜单</div>
     <div class="tab" data-v="latest">今日上新</div>
+    <div class="tab" data-v="account">账号</div>
   </div>
   <span style="flex:1"></span>
   <input id="key" placeholder="api_key(可空)">
@@ -69,11 +70,73 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   t.classList.add('on'); view = t.dataset.v; renderSub();
 });
 
+// ---- 账号(红果手机账号: 验证码登录/云端历史/收藏) ----
+let acct = {loggedIn:false};
+async function acctRefresh(){
+  try{ acct = await get('/desktop/account/status',{}); }catch(e){ acct = {loggedIn:false}; }
+  renderAcct();
+}
+function renderAcct(){
+  if(view!=='account') return;
+  if(acct.loggedIn){
+    sub.innerHTML = `<span style="color:#9c9">已登录: ${acct.userName||acct.mobile||acct.uid}</span>
+      <button onclick="acctLogout()">退出登录</button> <button onclick="acctRemote()">↻ 云端历史/收藏</button>`;
+    grid.innerHTML = '<div style="color:#888;padding:20px">点击「云端历史/收藏」拉取; 看过的剧会同步到手机 App。</div>';
+    acctRemote();
+  }else{
+    sub.innerHTML = `<input id="mobi" placeholder="手机号" style="width:130px" inputmode="numeric">
+      <input id="vcode" placeholder="验证码" style="width:90px" inputmode="numeric">
+      <button onclick="acctSend()">发验证码</button>
+      <button onclick="acctLogin()">登录</button>
+      <span id="ast" style="color:#888;font-size:12px"></span>`;
+    grid.innerHTML = '<div style="color:#888;padding:20px">登录红果账号后可同步手机端的观看历史与收藏。</div>';
+  }
+}
+async function acctSend(){
+  const m=document.getElementById('mobi').value.trim(), st=document.getElementById('ast');
+  st.textContent='发送中...';
+  try{ const r=await get('/desktop/account/send_code',{mobile:m});
+    st.textContent = r.hasTicket ? '验证码已发送(需安全验证时登录时会提示)' : '验证码已发送';
+    acct._ticket='';
+  }catch(e){ st.textContent='错误: '+e.message; }
+}
+async function acctLogin(){
+  const m=document.getElementById('mobi').value.trim(), c=document.getElementById('vcode').value.trim(), st=document.getElementById('ast');
+  st.textContent='登录中...';
+  try{
+    const r=await get('/desktop/account/login',{mobile:m,code:c,ticket:acct._ticket||''});
+    if(r.mfaRequired){ st.textContent='需安全验证: '+((r.error||'')+' 请等几秒再点一次登录'); acct._ticket=r.ticket||''; return; }
+    await acctRefresh();
+  }catch(e){ st.textContent='错误: '+e.message; }
+}
+async function acctLogout(){ try{ await get('/desktop/account/logout',{}); }catch(e){} acctRefresh(); }
+async function acctRemote(){
+  const r=await get('/desktop/account/remote',{limit:60});
+  let html='';
+  if(r.historyOk && r.history.length){
+    html += `<h3 style="margin:14px 0 8px;color:#ff6b35">▶ 继续观看(云端 ${r.historyTotal})</h3><div class="grid" style="padding:0">`;
+    html += r.history.map(h=>`<div class="card" onclick="openSeries('${h.seriesId}','${(h.title||'').replace(/'/g,'')}')">
+      <img class="cover" src="${h.cover}" loading="lazy" referrerpolicy="no-referrer">
+      <div class="info"><div class="t">${h.title||h.seriesId}</div><div class="m">看到第 ${h.episode} 集${h.total?' / '+h.total:''}</div></div></div>`).join('');
+    html += '</div>';
+  } else if(!r.historyOk){ html += `<div style="color:#c66;padding:10px 0">云端历史读取失败: ${r.error||''}</div>`; }
+  if(r.favoritesOk && r.favorites.length){
+    html += `<h3 style="margin:18px 0 8px;color:#ff6b35">★ 我的收藏(${r.favorites.length})</h3><div class="grid" style="padding:0">`;
+    html += r.favorites.map(h=>`<div class="card" onclick="openSeries('${h.seriesId}','${(h.title||'').replace(/'/g,'')}')">
+      <img class="cover" src="${h.cover||''}" loading="lazy" referrerpolicy="no-referrer">
+      <div class="info"><div class="t">${h.title||h.seriesId}</div></div></div>`).join('');
+    html += '</div>';
+  }
+  grid.innerHTML = html || '<div style="color:#888;padding:20px">云端暂无历史/收藏。</div>';
+}
+
 function renderSub(){
   grid.innerHTML='';
   if(view==='search'){
     sub.innerHTML = `<input id="qq" placeholder="输入剧名" style="flex:1;min-width:200px"><button onclick="doSearch()">搜索</button>`;
     document.getElementById('qq').onkeydown = e => { if(e.key==='Enter') doSearch(); };
+  } else if(view==='account'){
+    renderAcct();
   } else if(view==='rank'){
     sub.innerHTML = `<select id="board"><option value="recommend">推荐榜</option><option value="hot">热播榜</option><option value="new">新剧榜</option></select><button onclick="doRank()">刷新</button>`;
     doRank();
@@ -106,7 +169,7 @@ const modal=document.getElementById('modal'), box=document.getElementById('box')
 modal.onclick = e => { if(e.target===modal) modal.style.display='none'; };
 let curEps=[], curId=null;
 async function openSeries(sid, title){
-  curId=sid; modal.style.display='flex'; box.innerHTML='<span class="close" onclick="modal.style.display=\'none\'">×</span>加载中...';
+  curId=sid; curTitle=title||''; modal.style.display='flex'; box.innerHTML='<span class="close" onclick="modal.style.display=\'none\'">×</span>加载中...';
   try{
     const r = await get('/episodes',{series_id:sid});
     curEps = r.episodes; const m=r.meta;
@@ -123,7 +186,7 @@ async function openSeries(sid, title){
       <div class="eps">${curEps.map(e=>`<div class="ep" onclick="playEp(${e.index})" title="${(e.title||'').slice(0,20)}">${e.index}</div>`).join('')}</div>`;
   }catch(e){ box.innerHTML='<span class="close" onclick="modal.style.display=\'none\'">×</span>错误: '+e.message; }
 }
-let lastUrl='';
+let lastUrl=''; let curTitle='';
 async function copyText(t){ try{ await navigator.clipboard.writeText(t); return true; }catch(e){ return false; } }
 async function playEp(idx){
   const p=document.getElementById('prog'); p.textContent='获取第'+idx+'集...';
@@ -141,6 +204,12 @@ async function playEp(idx){
     // 下一集预热: 播放稳定后后台预取 ep+1(服务端解密缓存), 连播时秒开
     v.onplaying=()=>{ if(curEps.length>idx && !v.dataset.pf){ v.dataset.pf=1;
       fetch(API+'/stream'+q({series_id:curId,ep:String(idx+1)}),{headers:{Range:'bytes=0-0'}}).catch(()=>{}); } };
+    // 登录状态下上报观看进度(同步到手机红果账号); 每30秒+暂停/结束时补报
+    if(acct && acct.loggedIn){
+      const rep=()=>fetch(API+`/desktop/account/progress${q({series_id:curId,ep:idx,total:curEps.length,position:Math.floor(v.currentTime||0),duration:Math.floor(v.duration||0),title:encodeURIComponent(curTitle||'')})}`,{method:'POST'}).catch(()=>{});
+      v.ontimeupdate=()=>{ if(Math.floor(v.currentTime)%30===0) rep(); };
+      v.onpause=rep; v.onended=()=>{ rep(); if(curEps.length>idx) playEp(idx+1); };
+    }
   }catch(e){ p.textContent='错误: '+e.message; }
 }
 function epNext(idx){ if(curEps.length>idx) playEp(idx+1); else alert('已经是最后一集'); }

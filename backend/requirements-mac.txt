@@ -1,0 +1,7 @@
+# macOS 后端依赖 (Python 3.11+, uv 或 pip 安装)
+requests==2.34.2
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+pycryptodome==3.23.0
+av==18.1.0
+curl_cffi>=0.7

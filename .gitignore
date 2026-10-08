@@ -1,0 +1,7 @@
+venv/
+data/
+downloads/
+__pycache__/
+*.pyc
+runtime/
+*.log
